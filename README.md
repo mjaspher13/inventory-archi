@@ -2,156 +2,177 @@
 ### Principal Engineer Case Study – Explanation
 
 ## Introduction
-This case study presents a scalable, real-time inventory platform engineered to support extremely high concurrency across distributed locations. The system prioritizes accuracy, low latency, and fault tolerance, preventing overselling during peak traffic and delivering real-time inventory updates to users and downstream systems.
+This system is engineered to support high-volume, real-time inventory operations across distributed locations. The design ensures inventory accuracy, low latency, and operational resilience under unpredictable load.
 
-The platform adopts a serverless, event-driven model to ensure seamless scaling, reduced operational overhead, and consistent performance under heavy load.
+To accomplish this, the platform uses a serverless, event-driven architecture paired with NoSQL for real-time stock control and RDS for analytical and reporting workloads, ensuring both high-speed transactional updates and robust query capabilities for business insights.
 
 ---
 
 ## Architecture Overview
-The architecture uses:
+This architecture blends:
 
 - Serverless compute
-- NoSQL storage with atomic conditional writes
-- Distributed caching
-- Event streaming
+- DynamoDB with atomic conditional writes for real-time inventory control
+- Redis for low-latency hot-SKU reads
+- Event streaming for system-wide propagation and analytics feeds
+- SQS for asynchronous work buffering
+- **RDS for analytical/reporting queries separated from transactional paths**
 
-These components work together to deliver high availability, strict inventory consistency, and real-time state propagation across services and user devices.
+This combination delivers consistent inventory correctness at scale without sacrificing reporting capabilities.
 
 ---
 
-## Component Breakdown and Justification
+## Component Breakdown & Justification
 
 ### Client Applications (React, React Native)
 
-**Reasons for Use**
-- Cross-platform reach
-- Optimistic UI for low-latency user experience
-- Persistent WebSocket connection
+**Why**
 
-**How It Solves the Problem**
-- Users receive live stock updates
-- Reduces failed checkout attempts during rapid stock changes
+- Cross-platform UI
+- Optimistic UX pattern to reduce perceived latency
+
+**Role**
+
+- Real-time WebSocket subscription for stock changes
 
 ---
 
-### CloudFront (Content Delivery & Edge Caching)
+### CloudFront (Edge Caching)
 
-**Reasons for Use**
-- Distributed caching close to users
-- Backend offload and faster global response times
+**Why**
 
-**How It Solves the Problem**
-- Handles global peak user load
-- Maintains fast catalog reads
+- Global acceleration for product browsing
+
+**Role**
+
+- Reduces load on API tier
+- Ensures rapid asset delivery at scale
 
 ---
 
 ### API Gateway (REST + WebSockets)
 
-**Reasons for Use**
-- Central API layer, auth, throttling
-- Native WebSocket support
+**Why**
 
-**How It Solves the Problem**
-- Protects backend from spikes
-- Sends real-time inventory notifications
+- Managed ingress + throttling
 
----
+**Role**
 
-### AWS Lambda (Node.js / TypeScript)
-
-**Reasons for Use**
-- Automatic scaling for unpredictable workloads
-- Stateless functions for resilience
-
-**How It Solves the Problem**
-- Executes stock checks, reservations, and idempotency logic
-- No capacity planning required for peak demand
+- REST for inventory actions
+- WebSocket for instant stock updates and cart events
 
 ---
 
-### DynamoDB (Primary Inventory Store)
+### AWS Lambda
 
-**Reasons for Use**
-- Millisecond reads/writes
-- Atomic conditional updates
-- Horizontal scaling
+**Why**
 
-**How It Solves the Problem**
-- Prevents overselling with conditional checks and version control
-- Handles massive concurrency reliably
+- Dynamic scaling to match traffic bursts
+- No idle cost
+
+**Role**
+
+- Executes business logic, idempotency, request validation
+- Protects DB from malformed traffic
+
+---
+
+### DynamoDB (Primary Real-Time Store)
+
+**Why**
+
+- Millisecond writes under massive concurrency
+- Atomic conditional updates prevent oversells
+
+**Role**
+
+- Source of truth for stock counts
+- Version-based concurrency enforcement
+
+---
+
+### Redis / ElastiCache
+
+**Why**
+
+- Sub-millisecond reads for hot products
+
+**Role**
+
+- Caches popular SKUs
+- Optional short-lived locks or rate limiting during flash events
+
+---
+
+### SQS + Lambda Workers
+
+**Why**
+
+- Decouples slow tasks from API path
+
+**Role**
+
+- Inventory reservation expiry
+- Email/notification delivery
+- Integration tasks
 
 ---
 
 ### DynamoDB Streams → Kinesis / EventBridge
 
-**Reasons for Use**
-- Real-time Change Data Capture
-- Multi-subscriber event fan-out
-- Replay support for audit/recovery
+**Why**
 
-**How It Solves the Problem**
-- Syncs cache, search index, and UI instantly
-- Supports real-time analytics and dashboards
+- Change Data Capture for system-wide sync
 
----
+**Role**
 
-### SQS + Lambda Workers (Async Processing)
-
-**Reasons for Use**
-- Separates heavy tasks from synchronous user flows
-- Handles spikes with retry and DLQ handling
-
-**How It Solves the Problem**
-- Maintains fast checkout experience
-- Background jobs (reservation expiry, sync tasks) never block users
+- Streams real-time updates to clients, search index, analytics, and **RDS ETL pipeline**
 
 ---
 
-### Redis / ElastiCache (Hot Data & Contention Control)
+### RDS (PostgreSQL / MySQL) for Reporting
 
-**Reasons for Use**
-- Microsecond reads for hot SKUs
-- Flash-sale traffic handling
-- Brief locking or rate-limiting support
+**Why**
 
-**How It Solves the Problem**
-- Smooths spikes on popular items
-- Prevents cart-bot abuse and rapid polling
+- Operational reporting and analytical queries often require joins, filtering, aggregates
+- Avoids burdening DynamoDB with analytical workloads
 
----
+**Role**
 
-### Observability (CloudWatch, X-Ray, Structured Logs)
+- Houses historical inventory views, audit trails, and business reports
+- Populated via streaming ETL from DynamoDB events
+- Enables BI dashboards and SQL-driven insights without impacting real-time operations
 
-**Reasons for Use**
-- Full system visibility
-- Distributed tracing across serverless components
-- SLO-driven alerting and performance monitoring
-
-**How It Solves the Problem**
-- Detects bottlenecks early
-- Ensures reliability during sustained high load
+> The separation of OLTP (DynamoDB) and OLAP/reporting workloads (RDS) ensures that real-time inventory performance remains unaffected by heavy reporting queries.
 
 ---
 
-### Security Layer (WAF, IAM, Secrets Manager)
+### Observability: CloudWatch, X-Ray, Structured Logging
 
-**Reasons for Use**
-- API protection
-- Fine-grained access control
-- Secure secret management
+**Why**
 
-**How It Solves the Problem**
-- Stops malicious/bot inventory abuse
-- Ensures security and compliance at scale
+- Distributed tracing and SLO-driven alerting
+
+**Role**
+
+- End-to-end visibility
+- Fast failure identification and response
+
+---
+
+### Security Layer: WAF, IAM, Secrets Manager
+
+**Why**
+
+- Inventory systems are high-value targets for bot manipulation
+
+**Role**
+
+- API protection, least-privilege access, secret rotation
 
 ---
 
 ## Real-Time Inventory Consistency Strategy
 
-### Optimistic Concurrency Control
-```text
-Update only if:
-stock >= requested_quantity
-AND version matches expected_version
+DynamoDB handles real-time inventory updates exceptionally well, but analytical queries and reporting require relational capabilities and efficient aggregation. By streaming changes into RDS, we isolate analytical workloads from the transactional path, ensuring that reporting does not impact real-time performance and scale. This also supports SQL-based BI dashboards, audit views, and historical metrics, which are essential for operational visibility and business planning.
+
