@@ -1,178 +1,112 @@
-# Scalable Inventory System Architecture
+# Scalable Inventory System Architecture  
 ### Principal Engineer Case Study – Explanation
 
 ## Introduction
 This system is engineered to support high-volume, real-time inventory operations across distributed locations. The design ensures inventory accuracy, low latency, and operational resilience under unpredictable load.
 
-To accomplish this, the platform uses a serverless, event-driven architecture paired with NoSQL for real-time stock control and RDS for analytical and reporting workloads, ensuring both high-speed transactional updates and robust query capabilities for business insights.
+To accomplish this, the platform uses a serverless, event-driven architecture paired with DynamoDB for real-time inventory updates and RDS for analytical and reporting workloads, ensuring both high-speed transactional processing and rich SQL-based insights.
 
 ---
 
 ## Architecture Overview
-This architecture blends:
+This architecture combines:
 
-- Serverless compute
-- DynamoDB with atomic conditional writes for real-time inventory control
-- Redis for low-latency hot-SKU reads
-- Event streaming for system-wide propagation and analytics feeds
-- SQS for asynchronous work buffering
-- **RDS for analytical/reporting queries separated from transactional paths**
+- CloudFront CDN with AWS WAF for global edge security and caching
+- API Gateway for REST and WebSocket communication
+- Serverless compute using AWS Lambda
+- DynamoDB for real-time stock control with conditional writes
+- Redis / ElastiCache for ultra-low-latency reads and hot item caching
+- EventBridge / Kinesis for streaming and multi-consumer fan-out
+- SQS for asynchronous workloads and back-pressure handling
+- RDS for analytics, BI reporting, and audit queries without impacting production traffic
 
-This combination delivers consistent inventory correctness at scale without sacrificing reporting capabilities.
+By separating OLTP and OLAP concerns, the system maintains strong consistency for stock while supporting rich reporting capabilities.
 
 ---
 
 ## Component Breakdown & Justification
 
 ### Client Applications (React, React Native)
-
 **Why**
-
-- Cross-platform UI
-- Optimistic UX pattern to reduce perceived latency
-
+- Cross-platform reach, efficient development
 **Role**
-
-- Real-time WebSocket subscription for stock changes
+- WebSocket subscription for instant stock updates
 
 ---
 
-### CloudFront (Edge Caching)
-
+### CloudFront + AWS WAF (Edge Security & Caching)
 **Why**
-
-- Global acceleration for product browsing
-
+- Global edge presence for low-latency content delivery
+- Security layer that blocks attacks and bot traffic before AWS APIs
 **Role**
-
-- Reduces load on API tier
-- Ensures rapid asset delivery at scale
+- Caches static/catalog data at the edge
+- Filters malicious requests pre-API Gateway (DDoS, scraping, cart-bots)
 
 ---
 
 ### API Gateway (REST + WebSockets)
-
 **Why**
-
-- Managed ingress + throttling
-
+- Central entry point with throttling and authentication
 **Role**
-
-- REST for inventory actions
-- WebSocket for instant stock updates and cart events
+- REST for inventory CRUD
+- WebSockets for real-time push events
 
 ---
 
 ### AWS Lambda
-
 **Why**
-
-- Dynamic scaling to match traffic bursts
-- No idle cost
-
+- Auto-scales with unpredictable load, pay-per-use
 **Role**
-
-- Executes business logic, idempotency, request validation
-- Protects DB from malformed traffic
+- Executes inventory logic, validation, idempotency checks
 
 ---
 
 ### DynamoDB (Primary Real-Time Store)
-
 **Why**
-
-- Millisecond writes under massive concurrency
-- Atomic conditional updates prevent oversells
-
+- Millisecond writes, massive concurrency
+- Atomic conditional writes prevent oversell
 **Role**
-
-- Source of truth for stock counts
-- Version-based concurrency enforcement
+- Single source of truth for inventory state
 
 ---
 
 ### Redis / ElastiCache
-
 **Why**
-
-- Sub-millisecond reads for hot products
-
+- Ultra-fast reads for hot SKUs, flash-sale traffic smoothing
 **Role**
-
-- Caches popular SKUs
-- Optional short-lived locks or rate limiting during flash events
+- SKU cache, rate limiting, optional short-lived locks
 
 ---
 
 ### SQS + Lambda Workers
-
 **Why**
-
-- Decouples slow tasks from API path
-
+- Offload non-critical tasks, protect synchronous UX
 **Role**
-
-- Inventory reservation expiry
-- Email/notification delivery
-- Integration tasks
+- Reservation expiry, email, downstream sync
 
 ---
 
-### DynamoDB Streams → Kinesis / EventBridge
-
+### DynamoDB Streams → EventBridge / Kinesis
 **Why**
-
-- Change Data Capture for system-wide sync
-
+- Real-time Change Data Capture
 **Role**
-
-- Streams real-time updates to clients, search index, analytics, and **RDS ETL pipeline**
+- Feed search index, analytics, cache invalidation, and RDS ETL pipeline
 
 ---
 
-### RDS (PostgreSQL / MySQL) for Reporting
-
+### RDS (PostgreSQL or MySQL)
 **Why**
-
-- Operational reporting and analytical queries often require joins, filtering, aggregates
-- Avoids burdening DynamoDB with analytical workloads
-
+- Rich SQL queries, aggregations, joins for BI & reporting
+- Decouples analytical load from real-time store
 **Role**
-
-- Houses historical inventory views, audit trails, and business reports
-- Populated via streaming ETL from DynamoDB events
-- Enables BI dashboards and SQL-driven insights without impacting real-time operations
-
-> The separation of OLTP (DynamoDB) and OLAP/reporting workloads (RDS) ensures that real-time inventory performance remains unaffected by heavy reporting queries.
+- Historical audit tables, reporting layer, analytics dashboards
 
 ---
 
-### Observability: CloudWatch, X-Ray, Structured Logging
+## Real-Time Consistency Strategy
 
-**Why**
+### Optimistic Concurrency
 
-- Distributed tracing and SLO-driven alerting
-
-**Role**
-
-- End-to-end visibility
-- Fast failure identification and response
-
----
-
-### Security Layer: WAF, IAM, Secrets Manager
-
-**Why**
-
-- Inventory systems are high-value targets for bot manipulation
-
-**Role**
-
-- API protection, least-privilege access, secret rotation
-
----
-
-## Real-Time Inventory Consistency Strategy
 
 DynamoDB handles real-time inventory updates exceptionally well, but analytical queries and reporting require relational capabilities and efficient aggregation. By streaming changes into RDS, we isolate analytical workloads from the transactional path, ensuring that reporting does not impact real-time performance and scale. This also supports SQL-based BI dashboards, audit views, and historical metrics, which are essential for operational visibility and business planning.
 
